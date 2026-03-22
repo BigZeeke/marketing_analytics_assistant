@@ -70,5 +70,4 @@ The app queries a 23-table marketing analytics schema covering:
 
 ## Author
 
-Steve Lopez — Data Analyst at VCA Animal Hospitals  
-Building toward Analytics Engineering on Azure/Databricks
+Steve Lopez — Data Analyst / Analytics Engineer
