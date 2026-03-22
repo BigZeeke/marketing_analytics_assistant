@@ -5,12 +5,15 @@ A natural language to SQL chat app built with Streamlit, Claude, and Databricks.
 ## Demo
 
 Ask questions like:
-- *"ROAS by channel using converted leads only"*
-- *"Monthly revenue trend across all of 2024"*
-- *"Email funnel: open to click to convert rates"*
-- *"Rank campaigns by ROAS using DENSE_RANK"*
+
+- _"ROAS by channel using converted leads only"_
+- _"Monthly revenue trend across all of 2024"_
+- _"Email funnel: open to click to convert rates"_
+- _"Rank campaigns by ROAS using DENSE_RANK"_
 
 The app writes the SQL, runs it against a live Databricks warehouse, and returns results with auto-generated charts.
+
+**[Live Demo →](https://marketing-analytics-assistant.streamlit.app)**
 
 ## Features
 
@@ -31,12 +34,15 @@ The app writes the SQL, runs it against a live Databricks warehouse, and returns
 
 1. Clone the repo
 2. Create a virtual environment and install dependencies:
+
 ```bash
    python3 -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
 ```
+
 3. Create `.streamlit/secrets.toml`:
+
 ```toml
    [databricks]
    server_hostname = "your-workspace.azuredatabricks.net"
@@ -48,7 +54,9 @@ The app writes the SQL, runs it against a live Databricks warehouse, and returns
    [anthropic]
    api_key = "your-anthropic-api-key"
 ```
+
 4. Run the app:
+
 ```bash
    streamlit run app.py
 ```
@@ -57,16 +65,16 @@ The app writes the SQL, runs it against a live Databricks warehouse, and returns
 
 The app queries a 23-table marketing analytics schema covering:
 
-| Domain | Tables |
-|--------|--------|
-| Core | campaigns, customers, leads, orders, products, payments |
-| Email | email_campaigns, email_events |
-| SEO | seo_keywords, seo_rankings, organic_traffic |
-| PPC | ad_groups, ads, ad_performance |
-| Web | web_sessions, web_events, gtm_tags |
-| Content | content_pieces, content_performance |
-| Audiences | audiences, audience_members |
-| Testing | ab_tests, ab_variants |
+| Domain    | Tables                                                  |
+| --------- | ------------------------------------------------------- |
+| Core      | campaigns, customers, leads, orders, products, payments |
+| Email     | email_campaigns, email_events                           |
+| SEO       | seo_keywords, seo_rankings, organic_traffic             |
+| PPC       | ad_groups, ads, ad_performance                          |
+| Web       | web_sessions, web_events, gtm_tags                      |
+| Content   | content_pieces, content_performance                     |
+| Audiences | audiences, audience_members                             |
+| Testing   | ab_tests, ab_variants                                   |
 
 ## Author
 
