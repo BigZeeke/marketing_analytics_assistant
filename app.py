@@ -11,9 +11,14 @@ Marketing Analytics NL-to-SQL Chat Assistant
 import streamlit as st
 import pandas as pd
 import anthropic
-from databricks import sql as databricks_sql
+import sqlite3
 import time
 import re
+
+# ─── DEPLOYMENT TOGGLE ───────────────────────────────────────────────────────
+# Set to True to use Databricks (production), False to use SQLite (demo)
+USE_DATABRICKS = False
+SQLITE_PATH = "marketing_analytics.db"
 
 # ─── PAGE CONFIG ─────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -83,37 +88,83 @@ AUDIENCE / TEST TABLES:
 IMPORTANT RULES:
 - Always prefix tables: marketing_portfolio.marketing_analytics.<table>
 - ROAS = SUM(deal_value) / SUM(spend) using only leads WHERE status = 'converted' AND deal_value IS NOT NULL
-- Use Databricks SQL syntax (no semicolons inside CTEs, QUALIFY instead of subqueries where possible)
-- dates are DATE type, timestamps are TIMESTAMP type
+- dates are stored as TEXT in ISO format (YYYY-MM-DD)
 """
 
-SYSTEM_PROMPT = f"""You are a marketing analytics SQL assistant. You help users explore marketing data by writing precise Databricks SQL queries.
+_SQLITE_RULES = """
+SQL DIALECT: SQLite
+- Date filtering: strftime('%Y', date_col) = '2024' — never use YEAR()
+- Month grouping: strftime('%Y-%m', date_col) — never use DATE_TRUNC
+- No QUALIFY clause — use subqueries instead
+- No PIVOT — use CASE WHEN for pivoting
+- Boolean values stored as 1/0 integers
+- No semicolons at end of queries
+- Table names do NOT need catalog prefix — use table name only (e.g. campaigns not marketing_portfolio.marketing_analytics.campaigns)
+"""
+
+_DATABRICKS_RULES = """
+SQL DIALECT: Databricks SQL (Delta Lake)
+- Date filtering: YEAR(date_col) = 2024 or date_col >= '2024-01-01'
+- Month grouping: DATE_TRUNC('month', date_col)
+- QUALIFY clause supported for window function filtering
+- Boolean values are TRUE/FALSE
+- No semicolons at end of queries
+- Always use fully qualified table names: marketing_portfolio.marketing_analytics.<table_name>
+"""
+
+def build_system_prompt():
+    dialect_rules = _DATABRICKS_RULES if USE_DATABRICKS else _SQLITE_RULES
+    dialect_name = "Databricks SQL" if USE_DATABRICKS else "SQLite"
+    return f"""You are a marketing analytics SQL assistant. You help users explore marketing data by writing precise {dialect_name} queries.
 
 When the user asks a question:
-1. Write a clean Databricks SQL query that answers it
+1. Write a correct {dialect_name} query that answers it
 2. Wrap the SQL in ```sql code blocks
 3. After the SQL, briefly explain what the query does in 1-2 sentences
 4. If the user asks a follow-up, use context from the conversation to refine or extend the previous query
 
-Always use fully qualified table names: marketing_portfolio.marketing_analytics.<table_name>
 Never use semicolons at the end of queries.
 Return only one SQL query per response.
+
+{dialect_rules}
 
 DATABASE SCHEMA:
 {SCHEMA}
 """
 
+SYSTEM_PROMPT = build_system_prompt()
+
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
 def get_anthropic_client():
     return anthropic.Anthropic(api_key=st.secrets["anthropic"]["api_key"])
 
-def get_db_connection():
-    cfg = st.secrets["databricks"]
-    return databricks_sql.connect(
-        server_hostname=cfg["server_hostname"],
-        http_path=cfg["http_path"],
-        access_token=cfg["access_token"],
-    )
+def run_query(sql: str) -> pd.DataFrame:
+    """Execute SQL against Databricks or SQLite depending on USE_DATABRICKS flag."""
+    if USE_DATABRICKS:
+        from databricks import sql as databricks_sql
+        cfg = st.secrets["databricks"]
+        conn = databricks_sql.connect(
+            server_hostname=cfg["server_hostname"],
+            http_path=cfg["http_path"],
+            access_token=cfg["access_token"],
+        )
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(sql)
+                cols = [d[0] for d in cursor.description]
+                rows = cursor.fetchall()
+                return pd.DataFrame(rows, columns=cols)
+        finally:
+            conn.close()
+    else:
+        # SQLite mode — strip catalog/schema prefix if present
+        clean_sql = re.sub(r"marketing_portfolio\.marketing_analytics\.", "", sql)
+        conn = sqlite3.connect(SQLITE_PATH)
+        try:
+            df = pd.read_sql_query(clean_sql, conn)
+            return df
+        finally:
+            conn.close()
 
 def extract_sql(text: str) -> str | None:
     """Pull the first ```sql ... ``` block from Claude's response."""
@@ -125,25 +176,13 @@ def extract_sql(text: str) -> str | None:
         return match.group(0).replace("```", "").strip()
     return None
 
-def run_query(sql: str) -> pd.DataFrame:
-    """Execute SQL and return a DataFrame."""
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(sql)
-            cols = [d[0] for d in cursor.description]
-            rows = cursor.fetchall()
-            return pd.DataFrame(rows, columns=cols)
-    finally:
-        conn.close()
-
 def ask_claude(messages: list) -> str:
     """Send conversation history to Claude and get a response."""
     client = get_anthropic_client()
     response = client.messages.create(
-        model="claude-opus-4-5",
+        model="claude-haiku-4-5-20251001",
         max_tokens=2000,
-        system=SYSTEM_PROMPT,
+        system=build_system_prompt(),
         messages=messages,
     )
     return response.content[0].text
@@ -180,11 +219,18 @@ if "messages" not in st.session_state:
     st.session_state.messages = []  # Claude conversation history
 if "chat_display" not in st.session_state:
     st.session_state.chat_display = []  # UI display items
+if "question_count" not in st.session_state:
+    st.session_state.question_count = 0  # Rate limit counter
+
+MAX_QUESTIONS = 20  # Per session limit
 
 # ─── SIDEBAR ─────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 📊 Marketing Analytics")
     st.markdown("Ask questions about your data in plain English.")
+    questions_used = st.session_state.get("question_count", 0)
+    questions_left = MAX_QUESTIONS - questions_used
+    st.caption(f"Questions remaining this session: {questions_left}/{MAX_QUESTIONS}")
     st.markdown("---")
     persona = st.selectbox("Question bank", ["👔 CMO", "📣 Digital Marketing Manager", "🔧 Analytics Engineer"])
 
@@ -324,10 +370,16 @@ if prefill and not user_input:
     user_input = prefill
 
 if user_input:
+    # Rate limit check
+    if st.session_state.question_count >= MAX_QUESTIONS:
+        st.warning(f"Session limit of {MAX_QUESTIONS} questions reached. Please refresh the page to start a new session.")
+        st.stop()
+
     # Show user message
     with st.chat_message("user"):
         st.markdown(user_input)
     st.session_state.chat_display.append({"role": "user", "content": user_input})
+    st.session_state.question_count += 1
 
     # Add to Claude conversation history
     st.session_state.messages.append({"role": "user", "content": user_input})
