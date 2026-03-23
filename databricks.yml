@@ -1,0 +1,16 @@
+bundle_name: marketing_analytics_assistant
+
+resources:
+  apps:
+    marketing_analytics_assistant:
+      name: marketing_analytics_assistant
+      source_code_path: .
+      config:
+        command:
+          - streamlit
+          - run
+          - app.py
+          - --server.port
+          - "8080"
+          - --server.address
+          - "0.0.0.0"
