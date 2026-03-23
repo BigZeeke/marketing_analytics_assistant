@@ -20,6 +20,22 @@ import re
 USE_DATABRICKS = False
 SQLITE_PATH = "marketing_analytics.db"
 
+# ─── AUTO-INIT (Streamlit Cloud / first boot) ─────────────────────────────────
+# If the DB doesn't exist, build it and seed recommendations automatically.
+# This runs once on cold start — no manual setup needed on Streamlit Cloud.
+import os, subprocess, sys
+
+if not os.path.exists(SQLITE_PATH):
+    with st.spinner("🚀 First launch — setting up database and generating recommendations..."):
+        # Build and seed the database
+        import setup_db
+        setup_db.create_db()
+        # Generate initial recommendations (neutral stance)
+        subprocess.run(
+            [sys.executable, "monitor.py", "--stance", "neutral"],
+            capture_output=True
+        )
+
 # ─── PAGE CONFIG ─────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Marketing Analytics Assistant",
@@ -112,7 +128,6 @@ SQL DIALECT: Databricks SQL (Delta Lake)
 - Always use fully qualified table names: marketing_portfolio.marketing_analytics.<table_name>
 """
 
-
 def build_system_prompt():
     dialect_rules = _DATABRICKS_RULES if USE_DATABRICKS else _SQLITE_RULES
     dialect_name = "Databricks SQL" if USE_DATABRICKS else "SQLite"
@@ -133,15 +148,11 @@ DATABASE SCHEMA:
 {SCHEMA}
 """
 
-
 SYSTEM_PROMPT = build_system_prompt()
 
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
-
-
 def get_anthropic_client():
     return anthropic.Anthropic(api_key=st.secrets["anthropic"]["api_key"])
-
 
 def run_query(sql: str) -> pd.DataFrame:
     """Execute SQL against Databricks or SQLite depending on USE_DATABRICKS flag."""
@@ -163,8 +174,7 @@ def run_query(sql: str) -> pd.DataFrame:
             conn.close()
     else:
         # SQLite mode — strip catalog/schema prefix if present
-        clean_sql = re.sub(
-            r"marketing_portfolio\.marketing_analytics\.", "", sql)
+        clean_sql = re.sub(r"marketing_portfolio\.marketing_analytics\.", "", sql)
         conn = sqlite3.connect(SQLITE_PATH)
         try:
             df = pd.read_sql_query(clean_sql, conn)
@@ -172,18 +182,15 @@ def run_query(sql: str) -> pd.DataFrame:
         finally:
             conn.close()
 
-
 def extract_sql(text: str) -> str | None:
     """Pull the first ```sql ... ``` block from Claude's response."""
     match = re.search(r"```sql\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
-    match = re.search(r"```\s*(SELECT|WITH).*?```",
-                      text, re.DOTALL | re.IGNORECASE)
+    match = re.search(r"```\s*(SELECT|WITH).*?```", text, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(0).replace("```", "").strip()
     return None
-
 
 def ask_claude(messages: list) -> str:
     """Send conversation history to Claude and get a response."""
@@ -195,7 +202,6 @@ def ask_claude(messages: list) -> str:
         messages=messages,
     )
     return response.content[0].text
-
 
 def render_chart(df: pd.DataFrame):
     """Auto-render the best chart for the data."""
@@ -224,7 +230,6 @@ def render_chart(df: pd.DataFrame):
     # Fallback: just plot numeric columns
     st.line_chart(df[numeric_cols])
 
-
 # ─── SESSION STATE ────────────────────────────────────────────────────────────
 if "messages" not in st.session_state:
     st.session_state.messages = []  # Claude conversation history
@@ -241,8 +246,7 @@ with st.sidebar:
     st.markdown("Ask questions about your data in plain English.")
     questions_used = st.session_state.get("question_count", 0)
     questions_left = MAX_QUESTIONS - questions_used
-    st.caption(
-        f"Questions remaining this session: {questions_left}/{MAX_QUESTIONS}")
+    st.caption(f"Questions remaining this session: {questions_left}/{MAX_QUESTIONS}")
     st.markdown("---")
 
     with st.expander("ℹ️ How to use this app", expanded=False):
@@ -261,10 +265,8 @@ with st.sidebar:
         """)
 
     st.markdown("---")
-    st.caption(
-        "Select a role to load relevant sample questions, or type your own in the chat.")
-    persona = st.selectbox("Question bank", [
-                           "👔 CMO", "📣 Digital Marketing Manager", "🔧 Analytics Engineer"])
+    st.caption("Select a role to load relevant sample questions, or type your own in the chat.")
+    persona = st.selectbox("Question bank", ["👔 CMO", "📣 Digital Marketing Manager", "🔧 Analytics Engineer"])
 
     st.markdown("---")
 
@@ -392,14 +394,11 @@ with tab_recs:
         """Add notes and actioned_at columns if they don't exist yet."""
         conn = sqlite3.connect(SQLITE_PATH)
         try:
-            existing = [r[1] for r in conn.execute(
-                "PRAGMA table_info(recommendations)").fetchall()]
+            existing = [r[1] for r in conn.execute("PRAGMA table_info(recommendations)").fetchall()]
             if "notes" not in existing:
-                conn.execute(
-                    "ALTER TABLE recommendations ADD COLUMN notes TEXT")
+                conn.execute("ALTER TABLE recommendations ADD COLUMN notes TEXT")
             if "actioned_at" not in existing:
-                conn.execute(
-                    "ALTER TABLE recommendations ADD COLUMN actioned_at TEXT")
+                conn.execute("ALTER TABLE recommendations ADD COLUMN actioned_at TEXT")
             conn.commit()
         except Exception:
             pass
@@ -441,8 +440,7 @@ with tab_recs:
         from datetime import datetime, timezone
         conn = sqlite3.connect(SQLITE_PATH)
         try:
-            actioned_at = datetime.now(timezone.utc).isoformat(
-                timespec="seconds") if new_status != "pending" else None
+            actioned_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if new_status != "pending" else None
             conn.execute(
                 "UPDATE recommendations SET status = ?, notes = ?, actioned_at = ? WHERE rec_id = ?",
                 (new_status, notes.strip() or None, actioned_at, rec_id)
@@ -455,8 +453,7 @@ with tab_recs:
         return text.replace("$", r"\$") if text else text
 
     def run_monitor(stance: str):
-        import subprocess
-        import sys
+        import subprocess, sys
         result = subprocess.run(
             [sys.executable, "monitor.py", "--stance", stance],
             capture_output=True, text=True
@@ -483,15 +480,13 @@ with tab_recs:
         st.caption(stance_descriptions[stance])
     with ctrl_col2:
         st.markdown("&nbsp;", unsafe_allow_html=True)
-        run_clicked = st.button(
-            "🔄 Refresh Recommendations", use_container_width=True)
+        run_clicked = st.button("🔄 Refresh Recommendations", use_container_width=True)
 
     if run_clicked:
         with st.spinner(f"Running monitor in **{stance}** mode — analyzing your marketing data..."):
             success, stdout, stderr = run_monitor(stance.lower())
         if success:
-            st.success(
-                f"✅ Monitor complete. Recommendations refreshed in **{stance}** mode.")
+            st.success(f"✅ Monitor complete. Recommendations refreshed in **{stance}** mode.")
             st.rerun()
         else:
             st.error("Monitor run failed. See details below.")
@@ -503,17 +498,16 @@ with tab_recs:
     recs_df = load_recommendations()
 
     if recs_df.empty:
-        st.warning(
-            "No recommendations found. Click **Refresh Recommendations** above to generate them.")
+        st.warning("No recommendations found. Click **Refresh Recommendations** above to generate them.")
     else:
         # Summary metrics
-        total = len(recs_df)
-        high_count = len(recs_df[recs_df["priority"] == "high"])
-        med_count = len(recs_df[recs_df["priority"] == "medium"])
-        low_count = len(recs_df[recs_df["priority"] == "low"])
+        total         = len(recs_df)
+        high_count    = len(recs_df[recs_df["priority"] == "high"])
+        med_count     = len(recs_df[recs_df["priority"] == "medium"])
+        low_count     = len(recs_df[recs_df["priority"] == "low"])
         pending_count = len(recs_df[recs_df["status"] == "pending"])
         applied_count = len(recs_df[recs_df["status"] == "applied"])
-        last_run = recs_df["run_at"].iloc[0] if "run_at" in recs_df.columns else "—"
+        last_run      = recs_df["run_at"].iloc[0] if "run_at" in recs_df.columns else "—"
 
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("Total",           total)
@@ -540,25 +534,21 @@ with tab_recs:
                 horizontal=True,
             )
 
-        priority_map = {"All": None, "🔴 High": "high",
-                        "🟡 Medium": "medium", "🟢 Low": "low"}
-        status_map = {"All": None, "⏳ Pending": "pending",
-                      "✅ Applied": "applied", "❌ Dismissed": "dismissed"}
+        priority_map = {"All": None, "🔴 High": "high",    "🟡 Medium": "medium", "🟢 Low": "low"}
+        status_map   = {"All": None, "⏳ Pending": "pending", "✅ Applied": "applied", "❌ Dismissed": "dismissed"}
 
         filtered_df = recs_df.copy()
         if priority_map[priority_filter]:
-            filtered_df = filtered_df[filtered_df["priority"]
-                                      == priority_map[priority_filter]]
+            filtered_df = filtered_df[filtered_df["priority"] == priority_map[priority_filter]]
         if status_map[status_filter]:
-            filtered_df = filtered_df[filtered_df["status"]
-                                      == status_map[status_filter]]
+            filtered_df = filtered_df[filtered_df["status"] == status_map[status_filter]]
 
         st.markdown("---")
         st.caption(f"Showing {len(filtered_df)} of {total} recommendations")
 
         # ── Recommendation cards ───────────────────────────────────────────────
         priority_icons = {"high": "🔴", "medium": "🟡", "low": "🟢"}
-        status_icons = {"pending": "⏳", "applied": "✅", "dismissed": "❌"}
+        status_icons   = {"pending": "⏳", "applied": "✅", "dismissed": "❌"}
 
         for _, row in filtered_df.iterrows():
             p_icon = priority_icons.get(row["priority"], "⚪")
@@ -578,26 +568,22 @@ with tab_recs:
                     st.markdown(f"**{row['confidence']}** confidence")
                     st.caption(f"{p_icon} {row['priority'].capitalize()}")
 
-                st.markdown(
-                    f"**Rationale:** {escape_dollars(row['rationale'])}")
+                st.markdown(f"**Rationale:** {escape_dollars(row['rationale'])}")
                 if row.get("simulated_impact"):
-                    st.markdown(
-                        f"**Estimated impact:** {escape_dollars(row['simulated_impact'])}")
+                    st.markdown(f"**Estimated impact:** {escape_dollars(row['simulated_impact'])}")
 
                 st.markdown("")
                 status_col, notes_col = st.columns([2, 4])
 
                 with status_col:
                     status_options = ["pending", "applied", "dismissed"]
-                    current_index = status_options.index(
-                        row["status"]) if row["status"] in status_options else 0
+                    current_index  = status_options.index(row["status"]) if row["status"] in status_options else 0
                     new_status = st.selectbox(
                         "Status",
                         options=status_options,
                         index=current_index,
                         key=f"status_{row['rec_id']}",
-                        format_func=lambda s: {
-                            "pending": "⏳ Pending", "applied": "✅ Applied", "dismissed": "❌ Dismissed"}[s],
+                        format_func=lambda s: {"pending": "⏳ Pending", "applied": "✅ Applied", "dismissed": "❌ Dismissed"}[s],
                         label_visibility="collapsed",
                     )
 
@@ -618,10 +604,8 @@ with tab_recs:
                             "Disagree with recommendation",
                             "Deferred to next cycle",
                         ]
-                        current_note = row.get(
-                            "notes", "") or "Select a reason…"
-                        reason_index = dismiss_reasons.index(
-                            current_note) if current_note in dismiss_reasons else 0
+                        current_note  = row.get("notes", "") or "Select a reason…"
+                        reason_index  = dismiss_reasons.index(current_note) if current_note in dismiss_reasons else 0
                         notes_input = st.selectbox(
                             "Reason for dismissing",
                             options=dismiss_reasons,
@@ -640,7 +624,7 @@ with tab_recs:
 
                 # Write back on any change
                 status_changed = new_status != row["status"]
-                notes_changed = notes_input.strip() != row.get("notes", "").strip()
+                notes_changed  = notes_input.strip() != row.get("notes", "").strip()
                 if (status_changed or notes_changed) and new_status != "pending":
                     update_status(int(row["rec_id"]), new_status, notes_input)
                     st.rerun()
@@ -651,8 +635,7 @@ with tab_recs:
         st.markdown("---")
 
         # ── Action log ────────────────────────────────────────────────────────
-        actioned_df = recs_df[recs_df["status"].isin(
-            ["applied", "dismissed"])].copy()
+        actioned_df = recs_df[recs_df["status"].isin(["applied", "dismissed"])].copy()
         if not actioned_df.empty:
             with st.expander(f"📋 Action log ({len(actioned_df)} items)", expanded=False):
                 log_df = actioned_df[[
@@ -672,8 +655,7 @@ with tab_recs:
 
         with st.expander("View raw recommendations table"):
             st.dataframe(
-                filtered_df.drop(
-                    columns=["rec_id", "run_at"], errors="ignore"),
+                filtered_df.drop(columns=["rec_id", "run_at"], errors="ignore"),
                 use_container_width=True,
             )
 
@@ -710,20 +692,17 @@ with tab_chat:
     if user_input:
         # Rate limit check
         if st.session_state.question_count >= MAX_QUESTIONS:
-            st.warning(
-                f"Session limit of {MAX_QUESTIONS} questions reached. Please refresh the page to start a new session.")
+            st.warning(f"Session limit of {MAX_QUESTIONS} questions reached. Please refresh the page to start a new session.")
             st.stop()
 
         # Show user message
         with st.chat_message("user"):
             st.markdown(user_input)
-        st.session_state.chat_display.append(
-            {"role": "user", "content": user_input})
+        st.session_state.chat_display.append({"role": "user", "content": user_input})
         st.session_state.question_count += 1
 
         # Add to Claude conversation history
-        st.session_state.messages.append(
-            {"role": "user", "content": user_input})
+        st.session_state.messages.append({"role": "user", "content": user_input})
 
         # Get Claude response
         with st.chat_message("assistant"):
@@ -733,15 +712,13 @@ with tab_chat:
                 elapsed = time.time() - start
 
             # Add Claude reply to conversation history
-            st.session_state.messages.append(
-                {"role": "assistant", "content": reply})
+            st.session_state.messages.append({"role": "assistant", "content": reply})
 
             # Extract SQL
             sql_query = extract_sql(reply)
 
             # Strip SQL block from display text for cleaner rendering
-            display_text = re.sub(r"```sql.*?```", "",
-                                  reply, flags=re.DOTALL).strip()
+            display_text = re.sub(r"```sql.*?```", "", reply, flags=re.DOTALL).strip()
             st.markdown(display_text)
 
             display_item = {
@@ -763,8 +740,7 @@ with tab_chat:
                         display_item["dataframe"] = df
                         st.dataframe(df, use_container_width=True)
                         render_chart(df)
-                        st.caption(
-                            f"Query returned {len(df)} rows in {elapsed:.1f}s")
+                        st.caption(f"Query returned {len(df)} rows in {elapsed:.1f}s")
                     except Exception as e:
                         err = f"Query error: {str(e)}"
                         display_item["error"] = err

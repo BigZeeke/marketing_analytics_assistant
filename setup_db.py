@@ -1085,9 +1085,8 @@ def create_db():
     print(f"\n✅ Database created: {DB_PATH}")
     print(f"   Size: {size/1024:.1f} KB")
     print(f"\nNext steps:")
-    print(f"  1. Commit marketing_analytics.db to your GitHub repo")
-    print(f"  2. Update USE_DATABRICKS = False in app.py")
-    print(f"  3. Deploy to Streamlit Community Cloud")
+    print(f"  1. Run: python monitor.py  (generates initial recommendations)")
+    print(f"  2. Run: streamlit run app.py")
 
 if __name__ == "__main__":
     create_db()
